@@ -1,5 +1,9 @@
 var bcrypt = require('bcrypt');
 var HASH_ROUNDS = 10;
+var secureRandom = require('secure-random');
+
+
+
 
 module.exports = function RedditAPI(conn) {
   return {
@@ -11,6 +15,7 @@ module.exports = function RedditAPI(conn) {
           callback(err);
         }
         else {
+
           conn.query(
             'INSERT INTO `users` (`username`,`password`, `createdAt`) VALUES (?, ?, ?)', [user.username, hashedPassword, null],
             function(err, result) {
@@ -59,6 +64,10 @@ module.exports = function RedditAPI(conn) {
       });
     },
     createPost: function(post, subreddit, callback) {
+      if (!callback) {
+        callback = subreddit;
+        subreddit = null
+      }
       conn.query(
         'INSERT INTO `posts` (`userId`, `subredditId`, `title`, `url`, `createdAt`) VALUES (?, ?, ?, ?, ?)', [post.userId, subreddit, post.title, post.url, null],
         function(err, result) {
@@ -71,8 +80,9 @@ module.exports = function RedditAPI(conn) {
             the post and send it to the caller!
             */
             conn.query(
-              'SELECT * from posts WHERE id = ? AND subredditId = ?', [result.insertId, subreddit],
+              `SELECT * from posts WHERE id = ? ${subreddit ? 'AND subredditId = ?' : ''}`, [result.insertId, subreddit],
               function(err, result) {
+
                 if (err) {
                   callback(err);
                 }
@@ -91,28 +101,30 @@ module.exports = function RedditAPI(conn) {
         callback = options;
         options = {};
       }
+
       var limit = options.numPerPage || 25; // if options.numPerPage is "falsy" then use 25
       var offset = (options.page || 0) * limit;
 
+
+
       conn.query(`
-        SELECT
-          \`posts\`.\`id\`AS\`posts_id\`,
-          \`title\`,
-          \`url\`,
-          \`userId\`,
-          \`posts\`.\`createdAt\`AS\`posts_createdAt\`,
-          \`posts\`.\`updatedAt\`AS\`posts_updatedAt\`,
-          \`users\`.\`id\`,
-          \`username\`,
-          \`users\`.\`createdAt\`AS\`users_createdAt\`,
-          \`users\`.\`updatedAt\`AS\`users_updatedAt\`,
-          \`subreddits\`.\`name\`AS\`subreddits_name\`
-        FROM \`posts\`
-        JOIN\`users\`ON\`users\`.\`id\`=\`posts\`.\`userId\`
-        JOIN\`subreddits\`ON\`subreddits\`.\`id\`=\`posts\`.\`subredditId\`
-        ORDER BY \`posts\`.\`createdAt\` DESC
-        LIMIT ? OFFSET ?
-        `, [limit, offset],
+      SELECT
+        posts.id AS posts_id,
+        title,
+        url,
+        userId,
+        posts.createdAt AS posts_createdAt,
+        posts.updatedAt AS posts_updatedAt,
+        users.id,
+        username,
+        users.createdAt AS users_createdAt,
+        users.updatedAt AS users_updatedAt,
+        subreddits.name AS subreddits_name
+      FROM posts
+      JOIN users ON users.id=posts.userId
+      LEFT JOIN subreddits ON subreddits.id = posts.subredditId
+      ORDER BY posts.createdAt DESC
+      `, [limit, offset],
         function(err, results) {
           if (err) {
             callback(err);
@@ -138,9 +150,8 @@ module.exports = function RedditAPI(conn) {
             callback(null, outPut);
           }
         }
-      );
+      )
     },
-
     getPostForUser: function(postId, options, callback) {
       if (!callback) {
         callback = options;
@@ -204,7 +215,7 @@ module.exports = function RedditAPI(conn) {
     },
     createComment: function(comment, callback) {
       conn.query(
-        `INSERT INTO comments ( text, userId, parentId, createdAt) VALUES (?,?,?,?)`, [comment.text, comment.userId, comment.parentId, null],
+        `INSERT INTO comments ( text, userId, postId, parentId, createdAt) VALUES (?,?,?,?,?)`, [comment.text, comment.userId, comment.postId, comment.parentId, null],
         function(err, result) {
           if (err) {
             callback(err)
@@ -279,21 +290,149 @@ module.exports = function RedditAPI(conn) {
 
       conn.query(
         `SELECT
-          id,
-          title,
-          url,
-          userId,
-          createdAt,
-          updatedAt
-          FROM posts WHERE id = ?`, [postId],
+          posts.id AS posts_id,
+          posts.title AS posts_title,
+          posts.url AS posts_url,
+          posts.userId AS posts_userId,
+          posts.createdAt AS posts_createdAt,
+          posts.updatedAt AS posts_updatedAt,
+          c1.id AS c1_id,
+          c1.text AS c1_text,
+          c1.createdAt AS c1_createdAt,
+          c1.updatedAt AS c1_updatedAt,
+          c2.id AS c2_id,
+          c2.text AS c2_text,
+          c2.createdAt AS c2_createdAt,
+          c2.updatedAt AS c2_updatedAt
+          FROM posts
+          LEFT JOIN comments AS c1 ON posts.id = c1.postId
+          LEFT JOIN comments AS c2 ON c1.postId=c2.parentId
+          WHERE posts.id= ? AND c1.parentId IS NULL`, [postId],
         function(err, results) {
           if (err) {
             callback(err)
           }
           else {
-            callback(results)
+            var outPut = [];
+
+            results.forEach(function(obj) {
+              outPut.push({
+                postId: obj.c1_id,
+                text: obj.c1_text,
+                createdAt: obj.c1_createdAt,
+                updatedAt: obj.c1_updatedAt,
+                replies: [{
+                  replyId: obj.c2_id,
+                  text: obj.c2_text,
+                  createdAt: obj.c2_createdAt,
+                  updatedAt: obj.c2_updatedAt
+                }]
+              })
+            })
+            callback(null, outPut);
           }
         })
     },
-  }
+    getComments: function(maxLevel, parentIds, commentsMap, finalComments, callback) {
+      var query;
+      if (!callback) {
+        // first time function is called
+        callback = parentIds;
+        parentIds = [];
+        commentsMap = {};
+        finalComments = [];
+        query = 'select * from comments where parentId is null';
+      }
+      else if (maxLevel === 0 || parentIds.length === 0) {
+        callback(null, finalComments);
+        return;
+      }
+      else {
+        query = 'select * from comments where parentId in (' + parentIds.join(',') + ')';
+      }
+
+      conn.query(query, function(err, res) {
+        if (err) {
+          callback(err);
+          return;
+        }
+        res.forEach(
+          function(comment) {
+            commentsMap[comment.id] = comment;
+            if (comment.parentId === null) {
+              finalComments.push(comment);
+            }
+            else {
+              var parent = commentsMap[comment.parentId];
+              parent.replies = parent.replies || [];
+              parent.replies.push(comment);
+            }
+          }
+        );
+
+        var newParentIds = res.map(function(item) {
+          return item.id;
+        });
+        RedditAPI.getComments(maxLevel - 1, newParentIds, commentsMap, finalComments, callback);
+      });
+    },
+    checkLogin: function(username, password, callback) {
+
+      conn.query("SELECT * FROM users WHERE username = ?", [username], function(err, result) {
+        if (result.length === 0) {
+          callback(new Error('username or password incorrect')); // in this case the user does not exists
+        }
+        else {
+          var user = result[0];
+          var actualHashedPassword = result[0].password;
+          bcrypt.compare(password, actualHashedPassword, function(err, res) {
+            if (res === true) { // let's be extra safe here
+              callback(null, user);
+            }
+            else {
+              callback(new Error('username or password incorrect')); // in this case the password is wrong, but we reply with the same error
+            }
+          })
+        }
+      })
+    },
+    createSessionToken: function() {
+      return secureRandom.randomArray(100).map(code => code.toString(36)).join('');
+    },
+    createSession: function(userId, callback) {
+      var token = this.createSessionToken();
+      conn.query('INSERT INTO sessions SET userId = ?, token = ?', [userId, token], function(err, result) {
+        if (err) {
+          callback(err);
+        }
+        else {
+          callback(null, token);
+        }
+      })
+    },
+    getUserFromSession: function(cookie, callback) {
+      conn.query(`SELECT userId FROM sessions WHERE token = ?`, [cookie], function(err, result) {
+        if (err) {
+          callback(err)
+        }
+        else if (result.length === 0) {
+          callback()
+        }
+        else {
+          callback(null, result[0].userId)
+        }
+      })
+    },
+    
+    
+    createVote: function(vote, callback) {
+      conn.query(`INSERT INTO votes SET postId= ?, userId=?, vote=?, createdAt=? ON DUPLICATE KEY UPDATE vote=?`, [vote.postId, vote.userId, vote.vote, vote.vote, null], function(err, result) {
+        if (err) {
+          callback(err)
+        } else {
+          callback(null, result)
+        }
+      })
+    }
+  };
 }

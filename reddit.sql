@@ -66,3 +66,32 @@ CREATE TABLE `comments` (
   
     ALTER TABLE `comments` ADD FOREIGN KEY (`parentId`) REFERENCES `comments`(`id`);
 
+CREATE TABLE sessions (userId INT NOT NULL, token VARCHAR(255) NOT NULL)
+}
+
+ALTER TABLE sessions ADD FOREIGN KEY (`userId`) REFERENCES `users`(`id`);
+
+
+CREATE TABLE votes (postId INT, userId INT);
+]
+
+
+ALTER TABLE votes
+ADD FOREIGN KEY (userId)
+REFERENCES users(id);
+
+
+ALTER TABLE votes
+ADD FOREIGN KEY (postId)
+REFERENCES posts(id);
+
+
+ALTER TABLE votes
+ADD vote INT;
+
+ALTER TABLE votes
+ADD createdAt timestamp;
+
+
+ALTER TABLE votes
+ADD voteScore INT;
