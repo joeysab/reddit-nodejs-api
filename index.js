@@ -5,6 +5,10 @@ var bodyParser = require('body-parser');
 var path = require('path');
 var secureRandom = require('secure-random');
 var cookieParser = require('cookie-parser');
+var React = require('react');
+var render = require('react-dom/server').renderToStaticMarkup;
+
+
 
 // create a connection to our Cloud9 server
 var connection = mysql.createConnection({
@@ -36,9 +40,11 @@ function checkLoginToken(request, response, next) {
 
 var app = express();
 
+app.use('/static', express.static('public'));
 app.use(bodyParser())
 app.use(cookieParser())
 app.use(checkLoginToken);
+
 
 
 
@@ -52,111 +58,9 @@ function betterLog(value) {
 
 
 
-// It's request time!
-// redditAPI.createUser({
-//   username: 'hello24',
-//   password: 'xxx'
-// }, function(err, user) {
-//   if (err) {
-//     console.log(err);
-//   }
-//   else {
-//     redditAPI.createPost({
-//       title: 'HEY reddit!',
-//       url: 'https://www.reddit.com',
-//       userId: user.id
-//     }, function(err, post) {
-//       if (err) {
-//         console.log(err);
-//       }
-//       else {
-//         console.log(post);
-//       }
-//     });
-//   }
-// });
-
-// redditAPI.getAllPosts(10, function(err, result){
-//   if (err){
-//     console.log(err)
-//   } else {
-//     console.log(null, result);
-//   }
-// });
 
 
-// redditAPI.getPostForUser(2, 10, function(err, result){
-//   if (err){
-//     console.log(err)
-//   } else {
-//     console.log(result);
-//   }
-// });
-
-
-// redditAPI.createSubreddit({
-//   name:'Fun12311',
-//   description: 'pretty cool stuff'
-// }, function(err,result){
-//   if(err){
-//   console.log(err)
-//   } else{
-//     console.log(result)
-//   }
-// })
-
-
-// redditAPI.getAllSubreddits(function(result){
-//   console.log(result);
-// })
-
-// redditAPI.createPost({
-//   userId: 1,
-//   title: 'Codrian is crazy', 
-//   url: 'www.hey.com'
-// },1, function(err,result){
-//   console.log(result)
-// })
-
-
-// redditAPI.createComment({
-//   text: "I like it!",
-//   userId: 1,
-//   postId: 8,
-//   parentId: 4
-// }, function(err, result){
-//   if (err){
-//     console.log(err)
-//   }else {
-//     console.log(result)
-//   }
-// })
-
-
-
-// redditAPI.getCommentsForPost(function(err,result){
-//   if(err){
-//     console.log(err)
-//   }else betterLog(result)
-// })
-
-
-
-// redditAPI.getSinglePost(8, 10, function(err, result) {
-//   if (err) {
-//     console.log(err)
-//   }
-//   else {
-//     betterLog(result)
-//   }
-// })
-
-
-// redditAPI.getComments(5, function(err, res) {
-//   console.log(JSON.stringify(res, null, 4));
-// })
-
-function createPostItem(post) {
+function createPostItem(post, loggedIn) {
   return `
     <li class="content-item">
       <h2 class="content-item__title">
@@ -164,26 +68,27 @@ function createPostItem(post) {
       </h2>
       <p>Created by ${post.user.username}</p>
       
-    <form action="/vote" method="post">
-      <input type="hidden" name="vote" value="1">
+      
+      
+      
+      ${loggedIn ? ` <form action="/vote" method="post">
+    <input type="hidden" name="vote" value="1">
       <input type="hidden" name="postId" value=${post.id}>
       <button type="submit">Upvote</button>
     </form>
-    
     <form action="/vote" method="post">
       <input type="hidden" name="vote" value="-1">
       <input type="hidden" name="postId" value=${post.id}>
       <button type="submit">Downvote</button>
-    </form>
+    </form>` : ``}
     </li>
-
     `
 }
 
 function createPostList(posts) {
   return `
    <div id="contents">
-     <h1>List of posts</h1>
+     <h1 class='mainTitle'>List of posts</h1>
        <ul class="contents-list">
          ${posts.join('')}
        </ul>
@@ -197,9 +102,12 @@ app.get('/', function(req, res) {
       res.status(500).send(err);
     }
     else {
-      var allPosts = posts.map(createPostItem);
+      var checkUser = req.loggedInUser;
+      var allPosts = posts.map(function(post){
+        return createPostItem(post, checkUser)
+      });
 
-      res.send(createPostList(allPosts));
+      res.send(renderPage('homepage', req.loggedInUser, createPostList(allPosts)));
     }
   });
 });
@@ -207,9 +115,18 @@ app.get('/', function(req, res) {
 
 //Takes you to the signup form
 app.get('/signup', function(req, res) {
-  res.sendFile(path.join(__dirname + '/signupform.html'));
+  var html = `<form action="/signup" method="POST"> 
+  <div>
+    <input type="text" name="username" placeholder="Enter username">
+  </div>
+  <div>
+    <input type="text" name="password" placeholder="Enter password">
+  </div>
+  <button type="submit">Signup</button>
+</form>`
+  
+  res.send(renderPage('Sign up', false, html));
 });
-
 
 
 
@@ -224,19 +141,38 @@ app.post('/signup', function(request, response) {
 
   redditAPI.createUser(user, function(err, res) {
     if (err) {
+
       response.status(500).send("Oops");
     }
     else {
-      response.redirect('/login');
+      response.redirect('/login')
     }
   })
 })
 
 
 
+
+
+
 //Login page
 app.get('/login', function(req, res) {
-  res.sendFile(path.join(__dirname + '/loginform.html'));
+
+  var html = `<form action="/login" method="POST"> <!-- what is this method="POST" thing? you should know, or ask me :) -->
+  <div>
+    <input type="text" name="username" placeholder="Enter username">
+  </div>
+  <div>
+    <input type="text" name="password" placeholder="Enter password">
+  </div>
+  <button type="submit">Login</button>
+</form>`;
+
+  res.send(renderPage('login', false, html));
+
+
+
+
 });
 
 app.post('/login', function(request, response) {
@@ -253,7 +189,7 @@ app.post('/login', function(request, response) {
         }
         else {
           response.cookie('SESSION', token); // the secret token is now in the user's cookies!
-          response.redirect('/login');
+          response.redirect('/');
         }
       });
     }
@@ -265,7 +201,16 @@ app.post('/login', function(request, response) {
 
 //Create port form
 app.get('/createpost', function(req, res) {
-  res.sendFile(path.join(__dirname + '/postform.html'));
+  var html = `<form action="/createpost" method="POST"> 
+  <div>
+    <input type="text" name="title" placeholder="Enter Title">
+  </div>
+  <div>
+    <input type="text" name="url" placeholder="Enter URL">
+  </div>
+  <button type="submit">Create</button>
+</form>`;
+res.send(renderPage('Create new Post', req.loggedInUser, html))
 });
 
 app.post('/createPost', function(request, response) {
@@ -300,27 +245,101 @@ app.post('/vote', function(request, response) {
     postId: request.body.postId,
     vote: request.body.vote
   }
-  
-  
+
+
   redditAPI.createVote(vote, function(err, res) {
     if (err) {
-      console.log(err)
       response.send(err)
     }
     else {
       response.redirect('/')
     }
-  }
-  )
+  })
 })
 
+app.get('/sort/:sort', function(req, res) {
+  redditAPI.getAllPostsSorted(req.params.sort, function(err, posts) {
+    if (err) {
+      res.status(500).send(err);
+    }
+    else {
+      var allPosts = posts.map(function(post) {
+        return createPostItem(post, req.loggedInUser);
+      });
+      
+      
+      res.send(renderPage(req.params.sort, req.loggedInUser, createPostList(allPosts)));
+    }
+  });
+});
+
+
+app.get('/', function(req, res) {
+  redditAPI.getAllPostsSorted(req.sort, function(err, posts) {
+    if (err) {
+      res.status(500).send(err);
+    }
+    else {
+      var allPosts = posts.map(createPostItem);
+      res.send(createPostList(allPosts));
+    }
+  });
+});
+
+
+app.get('/logout', function(request, response) {
+  if (!request.loggedInUser) {
+    response.status(401).send("Oops something went wrong with the logout!");
+  } else {
+    redditAPI.logOut(request.loggedInUser.userId, request.loggedInUser.token, function(err, result) {
+      if (err) {
+        response.status(500).send('Oops! An error occurred. Please try again later!');
+      } else {
+        response.clearCookie('SESSION');  // clears cookie in the browser
+        response.redirect('/');
+      }
+    });
+  }
+});
 
 
 
+function renderPage(title, isLoggedIn, content) {
+var loggedIn = ` <nav class= loggedInMenu><img src='https://vb.northsearegion.eu/files/theme/default-user-icon-profile.png' width=50px height= 50px><form><button type="submit">${isLoggedIn ? `<a href ='/logout'>Logout</a>` : ``}</button></form>`;
+var loggedOut = `<nav> <ul>
+  <li><a href="/login" class="round green">Login<span class="round">That is, if you already have an account.</span></a></li>
+  <li><a href="/signup" class="round red">Sign Up<span class="round">But only if you really, really want to. </span></a></li>
+  </ul></nav>`;
+  return `
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <title>${title}</title>
+      <link rel= 'stylesheet' href= '/static/main.css'> 
+    </head>
+    <body>
+      <header>
+        <div><a href= 'https://reddit-nodejs-api-joeysab.c9users.io/'><img id = 'redditLogo' src='https://www.redditstatic.com/about/assets/reddit-logo.png'></a></div>
+         <a href="/" class="">Home</a>
+         <a href="/sort/hot" class="">Hot</a>
+         <a href="/sort/top" class="">Top</a>
+         <a href="/sort/new" class="">New</a>
+          ${isLoggedIn ? loggedIn : loggedOut}
+          
 
 
-
-
+        
+      </header>
+      <main>
+        ${content}
+      </main>
+      <footer>
+        
+      </footer>
+    </body>
+  </html>
+  `;
+}
 
 
 var server = app.listen(process.env.PORT, process.env.IP, function() {

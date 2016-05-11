@@ -10,6 +10,7 @@
   "author": "Ziad Saab <ziad.saab@gmail.com>",
   "license": "ISC",
   "dependencies": {
+    "babel-preset-react": "^6.5.0",
     "bcrypt": "^0.8.6",
     "body-parser": "^1.15.0",
     "cookie-parser": "^1.4.1",
@@ -17,6 +18,13 @@
     "mysql": "^2.10.2",
     "nodemon": "^1.9.2",
     "path": "^0.12.7",
+    "react": "^15.0.2",
+    "react-dom": "^15.0.2",
     "secure-random": "^1.1.1"
+  },
+  "babel": {
+    "presets": [
+      "react"
+    ]
   }
 }

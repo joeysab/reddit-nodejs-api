@@ -29,6 +29,7 @@ module.exports = function RedditAPI(conn) {
                   callback(new Error('A user with this username already exists'));
                 }
                 else {
+                  console.log(err, 'asdadasdas')
                   callback(err);
                 }
               }
@@ -53,6 +54,7 @@ module.exports = function RedditAPI(conn) {
                       3b. If the insert succeeds, re-fetch the user from the DB
                       4. If the re-fetch succeeds, return the object to the caller
                       */
+                      console.log('in the insert user callbaclk')
                       callback(null, result[0]);
                     }
                   }
@@ -423,16 +425,181 @@ module.exports = function RedditAPI(conn) {
         }
       })
     },
-    
-    
+
+
     createVote: function(vote, callback) {
-      conn.query(`INSERT INTO votes SET postId= ?, userId=?, vote=?, createdAt=? ON DUPLICATE KEY UPDATE vote=?`, [vote.postId, vote.userId, vote.vote, vote.vote, null], function(err, result) {
+      conn.query(`INSERT INTO votes SET postId= ?, userId=?, vote=?, createdAt=? ON DUPLICATE KEY UPDATE vote=?`, [vote.postId, vote.userId, vote.vote, null, vote.vote], function(err, result) {
         if (err) {
           callback(err)
-        } else {
+        }
+        else {
           callback(null, result)
         }
       })
+    },
+
+    getAllPostsSorted: function(sortBy, callback) {
+
+      if (sortBy === "top") {
+
+        conn.query(`
+      SELECT
+        vote,
+        posts.id AS posts_id,
+        title,
+        url,
+        posts.userId AS posts_userId,
+        posts.createdAt AS posts_createdAt,
+        posts.updatedAt AS posts_updatedAt,
+        users.id,
+        username,
+        users.createdAt AS users_createdAt,
+        users.updatedAt AS users_updatedAt,
+        subreddits.name AS subreddits_name
+      FROM posts
+      JOIN users ON users.id=posts.userId
+      LEFT JOIN subreddits ON subreddits.id = posts.subredditId
+      JOIN votes ON votes.postId = posts.id
+      ORDER BY votes.createdAt DESC
+      `,
+          function(err, results) {
+            if (err) {
+              callback(err);
+            }
+            else {
+              var outPut = results.map(function(obj) {
+                return {
+                  id: obj.posts_id,
+                  title: obj.title,
+                  url: obj.url,
+                  createdAt: obj.posts_createdAt,
+                  updatedAt: obj.posts_updatedAt,
+                  userId: obj.posts_userId,
+                  subredditName: obj.subreddits_name,
+                  user: {
+                    id: obj.userId,
+                    username: obj.username,
+                    createdAt: obj.users_createdAt,
+                    updatedAt: obj.users_updatedAt
+                  }
+                }
+              })
+              callback(null, outPut);
+            }
+          }
+        )
+      }
+      else if (sortBy === 'new') {
+        conn.query(`
+      SELECT
+        vote,
+        posts.id AS posts_id,
+        title,
+        url,
+        posts.userId AS posts_userId,
+        posts.createdAt AS posts_createdAt,
+        posts.updatedAt AS posts_updatedAt,
+        users.id,
+        username,
+        users.createdAt AS users_createdAt,
+        users.updatedAt AS users_updatedAt,
+        subreddits.name AS subreddits_name
+      FROM posts
+      JOIN users ON users.id=posts.userId
+      LEFT JOIN subreddits ON subreddits.id = posts.subredditId
+      JOIN votes ON votes.postId = posts.id
+      ORDER BY posts.createdAt DESC
+      `,
+          function(err, results) {
+            if (err) {
+              callback(err);
+            }
+            else {
+              var outPut = results.map(function(obj) {
+                return {
+                  id: obj.posts_id,
+                  title: obj.title,
+                  url: obj.url,
+                  createdAt: obj.posts_createdAt,
+                  updatedAt: obj.posts_updatedAt,
+                  userId: obj.posts_userId,
+                  subredditName: obj.subreddits_name,
+                  user: {
+                    id: obj.userId,
+                    username: obj.username,
+                    createdAt: obj.users_createdAt,
+                    updatedAt: obj.users_updatedAt
+                  }
+                }
+              })
+              callback(null, outPut);
+            }
+          }
+        )
+      }
+      else if (sortBy === 'hot') {
+        conn.query(`
+      SELECT
+        vote,
+        posts.id AS posts_id,
+        title,
+        url,
+        posts.userId AS posts_userId,
+        posts.createdAt AS posts_createdAt,
+        posts.updatedAt AS posts_updatedAt,
+        users.id,
+        username,
+        users.createdAt AS users_createdAt,
+        users.updatedAt AS users_updatedAt,
+        subreddits.name AS subreddits_name,
+        (SUM(IFNULL(votes.vote, 0)) / TIMESTAMPDIFF(HOUR, posts.createdAt, CURRENT_TIMESTAMP)) AS timeScore
+      FROM posts
+      LEFT JOIN users ON users.id=posts.userId
+      LEFT JOIN subreddits ON subreddits.id = posts.subredditId
+      JOIN votes ON votes.postId = posts.id
+      GROUP BY posts.id
+      ORDER BY timeScore DESC
+      LIMIT 25
+      `,
+          function(err, results) {
+            if (err) {
+              callback(err);
+            }
+            else {
+              var outPut = results.map(function(obj) {
+                return {
+                  id: obj.posts_id,
+                  title: obj.title,
+                  url: obj.url,
+                  createdAt: obj.posts_createdAt,
+                  updatedAt: obj.posts_updatedAt,
+                  userId: obj.posts_userId,
+                  subredditName: obj.subreddits_name,
+                  user: {
+                    id: obj.userId,
+                    username: obj.username,
+                    createdAt: obj.users_createdAt,
+                    updatedAt: obj.users_updatedAt
+                  }
+                }
+              })
+              callback(null, outPut);
+            }
+          }
+        )
+      }
+    },
+    logOut: function(userId, token, callback) {
+      conn.query(`DELETE FROM sessions WHERE userId=? AND token=? LIMIT 1`, [userId, token],
+        function(err, result) {
+          if (err) {
+            callback(err);
+          }
+          else {
+            callback(null, result);
+          }
+        }
+      );
     }
-  };
+  }
 }
